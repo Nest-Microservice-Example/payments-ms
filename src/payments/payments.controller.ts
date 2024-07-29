@@ -7,31 +7,21 @@ export class PaymentsController {
 
   @Post('stripe-create-session')
   public createSessionPayments() {
-    return {
-      name: 'createSessionPayments',
-    };
+    return this.paymentsService.createSessionPayments();
   }
 
   @Post('stripe-webhook')
   public stripeWebhook() {
-    return {
-      name: 'createSessionPayments',
-    };
+    return this.paymentsService.stripeWebhook();
   }
 
   @Get('stripe-success')
   public stripeSuccess() {
-    return {
-      ok: true,
-      message: 'Payment successfully',
-    };
+    return this.paymentsService.stripeSuccess();
   }
 
   @Get('stripe-cancel')
   public stripeCancel() {
-    return {
-      ok: false,
-      message: 'Payment cancelled',
-    };
+    return this.paymentsService.stripeCancel();
   }
 }
