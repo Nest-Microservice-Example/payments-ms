@@ -12,7 +12,7 @@ const validationPipe = new ValidationPipe({
 async function bootstrap() {
   const logger = new Logger(AppModule.name);
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   const config = app.get(ConfigService);
 
