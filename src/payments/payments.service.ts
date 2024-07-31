@@ -1,97 +1,105 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import {Inject, Injectable} from '@nestjs/common';
+import {ConfigService} from '@nestjs/config';
 import Stripe from 'stripe';
-import { ConfigEnum, StripeConfig } from '../config';
-import { PaymentSessionDto } from './dto';
-import { Request, Response } from 'express';
+import {ConfigEnum, NATS_SERVICE, StripeConfig} from '../config';
+import {PaymentSessionDto} from './dto';
+import {Request, Response} from 'express';
+import {ClientProxy} from "@nestjs/microservices";
 
 @Injectable()
 export class PaymentsService {
-  private readonly stripe: Stripe;
-  private readonly configStripe: StripeConfig;
+    private readonly stripe: Stripe;
+    private readonly configStripe: StripeConfig;
 
-  constructor(private readonly _config: ConfigService) {
-    this.configStripe = this._config.get<StripeConfig>(ConfigEnum.STRIPE);
+    constructor(
+        private readonly _config: ConfigService,
+        @Inject(NATS_SERVICE) private readonly client: ClientProxy
+    ) {
+        this.configStripe = this._config.get<StripeConfig>(ConfigEnum.STRIPE);
 
-    this.stripe = new Stripe(this.configStripe.secretKey);
-  }
-
-  public async createSessionPayments(payload: PaymentSessionDto) {
-    const { currency, orderId, items } = payload;
-
-    const lineItems = items.map((product) => ({
-      quantity: product.quantity,
-      price_data: {
-        currency: currency,
-        product_data: {
-          name: product.name,
-        },
-        unit_amount: Math.round(product.price * 100),
-      },
-    }));
-
-    const stripeSession = await this.stripe.checkout.sessions.create({
-      line_items: lineItems,
-      payment_intent_data: {
-        metadata: { orderId },
-      },
-      locale: 'es',
-      mode: 'payment',
-      success_url: this.configStripe.successUrl,
-      cancel_url: this.configStripe.cancelUrl,
-    });
-
-    return {
-      name: 'createSessionPayments',
-      stripeSession,
-    };
-  }
-
-  public stripeWebhook(req: Request, res: Response) {
-    const sig = req.headers['stripe-signature'];
-
-    let event: Stripe.Event;
-
-    try {
-      const { endpointSecret } = this.configStripe;
-
-      event = this.stripe.webhooks.constructEvent(
-        req['rawBody'],
-        sig,
-        endpointSecret,
-      );
-    } catch (err) {
-      res.status(400).send(`Webhook Error: ${err.message}`);
-      return;
+        this.stripe = new Stripe(this.configStripe.secretKey);
     }
 
-    switch (event.type) {
-      case 'charge.succeeded':
-        const chargeSucceeded = event.data.object;
+    public async createSessionPayments(payload: PaymentSessionDto) {
+        const {currency, orderId, items} = payload;
 
-        console.log({
-          metadata: chargeSucceeded.metadata,
-          orderId: chargeSucceeded.metadata.orderId,
+        const lineItems = items.map((product) => ({
+            quantity: product.quantity,
+            price_data: {
+                currency: currency,
+                product_data: {
+                    name: product.name,
+                },
+                unit_amount: Math.round(product.price * 100),
+            },
+        }));
+
+        const stripeSession = await this.stripe.checkout.sessions.create({
+            line_items: lineItems,
+            payment_intent_data: {
+                metadata: {orderId},
+            },
+            locale: 'es',
+            mode: 'payment',
+            success_url: this.configStripe.successUrl,
+            cancel_url: this.configStripe.cancelUrl,
         });
-        break;
-      default:
-        break;
+
+        return {
+            cancelUrl: stripeSession.cancel_url,
+            successUrl: stripeSession.success_url,
+            url: stripeSession.url,
+        };
     }
 
-    return res.status(200).json({ sig, event });
-  }
+    public stripeWebhook(req: Request, res: Response) {
+        const sig = req.headers['stripe-signature'];
 
-  public stripeSuccess() {
-    return {
-      ok: true,
-      message: 'Payment successfully',
-    };
-  }
+        let event: Stripe.Event;
 
-  public stripeCancel() {
-    return {
-      ok: false,
-      message: 'Payment cancelled',
-    };
-  }
+        try {
+            const {endpointSecret} = this.configStripe;
+
+            event = this.stripe.webhooks.constructEvent(
+                req['rawBody'],
+                sig,
+                endpointSecret,
+            );
+        } catch (err) {
+            res.status(400).send(`Webhook Error: ${err.message}`);
+            return;
+        }
+
+        switch (event.type) {
+            case 'charge.succeeded':
+                const chargeSucceeded = event.data.object;
+
+                const payload = {
+                    stripePaymentId: chargeSucceeded.id,
+                    orderId: chargeSucceeded.metadata.orderId,
+                    receiptUrl: chargeSucceeded.receipt_url,
+                }
+
+                this.client.emit('payment.succeeded', payload)
+                break;
+            default:
+                break;
+        }
+
+        return res.status(200).json({sig, event});
+    }
+
+    public stripeSuccess() {
+        return {
+            ok: true,
+            message: 'Payment successfully',
+        };
+    }
+
+    public stripeCancel() {
+        return {
+            ok: false,
+            message: 'Payment cancelled',
+        };
+    }
 }

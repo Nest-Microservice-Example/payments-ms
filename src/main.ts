@@ -1,30 +1,43 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { Logger, ValidationPipe } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ConfigEnum } from './config';
+import {NestFactory} from '@nestjs/core';
+import {AppModule} from './app.module';
+import {Logger, ValidationPipe} from '@nestjs/common';
+import {ConfigService} from '@nestjs/config';
+import {ConfigEnum} from './config';
+import {MicroserviceOptions, Transport} from "@nestjs/microservices";
 
 const validationPipe = new ValidationPipe({
-  whitelist: true,
-  forbidNonWhitelisted: true,
+    whitelist: true,
+    forbidNonWhitelisted: true,
 });
 
 async function bootstrap() {
-  const logger = new Logger(AppModule.name);
+    const logger = new Logger(AppModule.name);
 
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+    const app = await NestFactory.create(AppModule, {rawBody: true});
 
-  const config = app.get(ConfigService);
+    const config = app.get(ConfigService);
 
-  const PORT = config.get<number>(ConfigEnum.PORT, { infer: true });
+    const PORT = config.get<number>(ConfigEnum.PORT, {infer: true});
+    const NATS = config.get<string[]>(ConfigEnum.NATS, {infer: true});
 
-  app.setGlobalPrefix('api');
+    app.connectMicroservice<MicroserviceOptions>({
+        transport: Transport.NATS,
+        options: {
+            servers: NATS
+        }
+    }, {
+        inheritAppConfig: true
+    })
 
-  app.useGlobalPipes(validationPipe);
+    app.setGlobalPrefix('api');
 
-  await app.listen(PORT);
+    app.useGlobalPipes(validationPipe);
 
-  logger.log(`Payments Microservice running on port ${PORT}`);
+    await app.startAllMicroservices();
+
+    await app.listen(PORT);
+
+    logger.log(`Payments Microservice running on port ${PORT}`);
 }
 
 bootstrap();
