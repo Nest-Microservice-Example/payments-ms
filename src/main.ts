@@ -4,6 +4,7 @@ import {Logger, ValidationPipe} from '@nestjs/common';
 import {ConfigService} from '@nestjs/config';
 import {ConfigEnum} from './config';
 import {MicroserviceOptions, Transport} from "@nestjs/microservices";
+import {RequestMethod} from "@nestjs/common/enums/request-method.enum";
 
 const validationPipe = new ValidationPipe({
     whitelist: true,
@@ -29,7 +30,12 @@ async function bootstrap() {
         inheritAppConfig: true
     })
 
-    app.setGlobalPrefix('api');
+    app.setGlobalPrefix('api', {
+        exclude: [{
+            path: '',
+            method: RequestMethod.GET
+        }],
+    });
 
     app.useGlobalPipes(validationPipe);
 
